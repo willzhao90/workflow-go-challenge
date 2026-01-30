@@ -1,0 +1,50 @@
+[psql]
+dbname = "workflow_engine"
+host = "localhost"
+port = 5876
+user = "workflow"
+pass = "workflow123"
+sslmode = "disable"
+schema = "public"
+blacklist = ["schema_migrations"]
+
+[auto-columns]
+created = "created_at"
+updated = "updated_at"
+
+output = "models"
+wipe = true
+struct-tag-casing = "snake"
+add-enum-types = true
+add-global-variants = false
+add-panic-variants = false
+no-driver-templates = false
+no-context = false
+no-tests = false
+no-hooks = false
+no-rows-affected = false
+no-auto-timestamps = false
+
+[imports]
+all = [
+  '"github.com/aarondl/null/v8"',
+  '"github.com/aarondl/sqlboiler/v4/types"',
+]
+
+[aliases.tables.workflows]
+up_plural = "Workflows"
+up_singular = "Workflow"
+down_plural = "workflows"
+down_singular = "workflow"
+
+[aliases.tables.workflow_nodes]
+up_plural = "WorkflowNodes"
+up_singular = "WorkflowNode"
+down_plural = "workflow_nodes"
+down_singular = "workflow_node"
+
+[aliases.tables.workflow_edges]
+up_plural = "WorkflowEdges"
+up_singular = "WorkflowEdge"
+down_plural = "workflow_edges"
+down_singular = "workflow_edge"
