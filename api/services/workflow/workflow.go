@@ -1,18 +1,67 @@
 package workflow
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
+	api "workflow-code-test/api/openapi"
+
 	"github.com/gorilla/mux"
 )
 
-// TODO: Update this
+// HandleGetWorkflow retrieves a workflow by ID from the database
 func (s *Service) HandleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	slog.Debug("Returning workflow definition for id", "id", id)
+
+	// Get workflow from database using repository
+	workflow, err := s.repository.GetWorkflowByID(r.Context(), id)
+	if err != nil {
+		slog.Error("Failed to get workflow", "error", err, "id", id)
+
+		// Check if workflow not found
+		if err.Error() == fmt.Sprintf("workflow not found: %s", id) {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(api.Error{
+				Error: "Workflow not found",
+			})
+			return
+		}
+
+		// Other database errors
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(api.Error{
+			Error: "Failed to retrieve workflow",
+		})
+		return
+	}
+
+	// Convert DB model to API model using mapper
+	apiWorkflow, err := MapDBWorkflowToAPI(workflow)
+	if err != nil {
+		slog.Error("Failed to map workflow", "error", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(api.Error{
+			Error: "Failed to process workflow",
+		})
+		return
+	}
+
+	// Send response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(apiWorkflow); err != nil {
+		slog.Error("Failed to encode response", "error", err)
+	}
+}
+
+// TODO: Keep the old hardcoded version as fallback for testing
+func (s *Service) HandleGetWorkflowHardcoded(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	slog.Debug("Returning hardcoded workflow definition for id", "id", id)
 
 	workflowJSON := `{
 		"id": "550e8400-e29b-41d4-a716-446655440000",

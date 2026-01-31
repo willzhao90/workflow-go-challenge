@@ -1,0 +1,10 @@
+# Configuration for oapi-codegen
+package: api
+generate:
+  - types
+  - chi-server
+  - spec
+output: api.gen.go
+output-options:
+  skip-fmt: false
+  skip-prune: false

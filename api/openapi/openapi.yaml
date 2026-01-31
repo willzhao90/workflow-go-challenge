@@ -1,0 +1,317 @@
+openapi: 3.0.3
+info:
+  title: Workflow API
+  description: API for managing and executing workflows
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/api
+    description: Local development server
+
+paths:
+  /workflow/{id}:
+    get:
+      summary: Get workflow by ID
+      description: Retrieve a workflow definition by its unique identifier
+      operationId: getWorkflow
+      tags:
+        - Workflows
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The unique identifier of the workflow
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Successfully retrieved workflow
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workflow'
+        '404':
+          description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /workflow/{id}/execute:
+    post:
+      summary: Execute a workflow
+      description: Execute a workflow with the provided input data
+      operationId: executeWorkflow
+      tags:
+        - Workflows
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The unique identifier of the workflow to execute
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        description: Input data for workflow execution
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowExecutionInput'
+      responses:
+        '200':
+          description: Workflow executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowExecutionResult'
+        '404':
+          description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Invalid input data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Error message
+          example: "Workflow not found"
+
+    Workflow:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the workflow
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: Name of the workflow
+          example: "Weather Alert Workflow"
+        description:
+          type: string
+          description: Description of the workflow
+          example: "Check weather conditions and send alerts"
+        nodes:
+          type: array
+          description: List of nodes in the workflow
+          items:
+            $ref: '#/components/schemas/WorkflowNode'
+        edges:
+          type: array
+          description: List of edges connecting the nodes
+          items:
+            $ref: '#/components/schemas/WorkflowEdge'
+
+    WorkflowNode:
+      type: object
+      required:
+        - id
+        - type
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the node
+          example: "start"
+        type:
+          type: string
+          description: Type of the node
+          enum:
+            - start
+            - end
+            - form
+            - integration
+            - condition
+            - email
+          example: "start"
+        position:
+          $ref: '#/components/schemas/Position'
+        data:
+          $ref: '#/components/schemas/NodeData'
+
+    Position:
+      type: object
+      properties:
+        x:
+          type: number
+          format: float
+          description: X coordinate
+          example: -160
+        y:
+          type: number
+          format: float
+          description: Y coordinate
+          example: 300
+
+    NodeData:
+      type: object
+      properties:
+        label:
+          type: string
+          description: Display label for the node
+          example: "Start"
+        description:
+          type: string
+          description: Description of what this node does
+          example: "Begin weather check workflow"
+        metadata:
+          type: object
+          description: Additional metadata for the node
+          additionalProperties: true
+
+    WorkflowEdge:
+      type: object
+      required:
+        - id
+        - source
+        - target
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the edge
+          example: "e1"
+        source:
+          type: string
+          description: Source node ID
+          example: "start"
+        target:
+          type: string
+          description: Target node ID
+          example: "form"
+        type:
+          type: string
+          description: Type of edge
+          example: "smoothstep"
+        sourceHandle:
+          type: string
+          description: Source handle identifier (for conditional nodes)
+          example: "true"
+        animated:
+          type: boolean
+          description: Whether the edge should be animated
+          example: true
+        label:
+          type: string
+          description: Label displayed on the edge
+          example: "Initialize"
+        style:
+          type: object
+          description: CSS style properties for the edge
+          additionalProperties: true
+        labelStyle:
+          type: object
+          description: CSS style properties for the edge label
+          additionalProperties: true
+
+    WorkflowExecutionInput:
+      type: object
+      description: Input data for workflow execution
+      properties:
+        variables:
+          type: object
+          description: Input variables for the workflow
+          additionalProperties: true
+          example:
+            name: "Alice"
+            email: "alice@example.com"
+            city: "Sydney"
+            threshold: 25
+            operator: "greater_than"
+
+    WorkflowExecutionResult:
+      type: object
+      required:
+        - executedAt
+        - status
+      properties:
+        executedAt:
+          type: string
+          format: date-time
+          description: Timestamp when the workflow was executed
+          example: "2024-01-15T14:30:24.856Z"
+        status:
+          type: string
+          description: Overall execution status
+          enum:
+            - completed
+            - failed
+            - partial
+          example: "completed"
+        steps:
+          type: array
+          description: Execution details for each step
+          items:
+            $ref: '#/components/schemas/ExecutionStep'
+
+    ExecutionStep:
+      type: object
+      required:
+        - nodeId
+        - type
+        - status
+      properties:
+        nodeId:
+          type: string
+          description: ID of the executed node
+          example: "form"
+        type:
+          type: string
+          description: Type of the node
+          example: "form"
+        label:
+          type: string
+          description: Display label of the node
+          example: "User Input"
+        description:
+          type: string
+          description: Description of what was executed
+          example: "Process collected data - name, email, location"
+        status:
+          type: string
+          description: Execution status of this step
+          enum:
+            - completed
+            - failed
+            - skipped
+          example: "completed"
+        output:
+          type: object
+          description: Output data from this step
+          additionalProperties: true
+          example:
+            name: "Alice"
+            email: "alice@example.com"
+            city: "Sydney"
+        error:
+          type: string
+          description: Error message if the step failed

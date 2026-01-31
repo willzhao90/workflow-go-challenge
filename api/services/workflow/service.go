@@ -1,18 +1,34 @@
 package workflow
 
 import (
+	"database/sql"
 	"net/http"
+
+	"workflow-code-test/api/pkg/db"
 
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 type Service struct {
-	db *pgxpool.Pool
+	db         *pgxpool.Pool
+	sqlDB      *sql.DB
+	repository *db.WorkflowRepository
 }
 
 func NewService(pool *pgxpool.Pool) (*Service, error) {
-	return &Service{db: pool}, nil
+	// Create a standard sql.DB from the pgxpool for SQLBoiler
+	sqlDB := stdlib.OpenDBFromPool(pool)
+
+	// Create the repository
+	repository := db.NewWorkflowRepository(sqlDB)
+
+	return &Service{
+		db:         pool,
+		sqlDB:      sqlDB,
+		repository: repository,
+	}, nil
 }
 
 // jsonMiddleware sets the Content-Type header to application/json
