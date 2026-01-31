@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"time"
 
 	api "workflow-code-test/api/openapi"
 
@@ -309,15 +308,55 @@ func (s *Service) HandleGetWorkflowHardcoded(w http.ResponseWriter, r *http.Requ
 	w.Write([]byte(workflowJSON))
 }
 
-// TODO: Update this
+// HandleExecuteWorkflow executes a workflow with the provided input data
 func (s *Service) HandleExecuteWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	slog.Debug("Handling workflow execution for id", "id", id)
 
-	// Generate current timestamp
-	currentTime := time.Now().Format(time.RFC3339)
+	// Parse request body
+	var input api.WorkflowExecutionInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		slog.Error("Failed to parse request body", "error", err)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(api.Error{
+			Error: "Invalid request body",
+		})
+		return
+	}
 
-	executionJSON := fmt.Sprintf(`{
+	// Execute workflow
+	result, err := s.ExecuteWorkflow(r.Context(), id, input)
+	if err != nil {
+		slog.Error("Failed to execute workflow", "error", err, "id", id)
+
+		// Check if workflow not found
+		if err.Error() == fmt.Sprintf("workflow not found: workflow not found: %s", id) {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(api.Error{
+				Error: "Workflow not found",
+			})
+			return
+		}
+
+		// Other errors
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(api.Error{
+			Error: "Failed to execute workflow",
+		})
+		return
+	}
+
+	// Send response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		slog.Error("Failed to encode response", "error", err)
+	}
+}
+
+/*
+Response example:
+executionJSON := fmt.Sprintf(`{
 		"executedAt": "%s",
 		"status": "completed",
 		"steps": [
@@ -393,7 +432,4 @@ func (s *Service) HandleExecuteWorkflow(w http.ResponseWriter, r *http.Request) 
 			}
 		]
 	}`, currentTime)
-
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(executionJSON))
-}
+*/
