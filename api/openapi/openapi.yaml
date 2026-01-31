@@ -233,26 +233,52 @@ components:
           description: CSS style properties for the edge label
           additionalProperties: true
 
+    Condition:
+      type: object
+      description: Condition parameters for workflow execution
+      required:
+        - operator
+        - threshold
+      properties:
+        operator:
+          type: string
+          description: Comparison operator for condition evaluation
+          enum:
+            - greater_than
+            - less_than
+            - equals
+            - greater_than_or_equal
+            - less_than_or_equal
+          example: "greater_than"
+        threshold:
+          type: number
+          format: float
+          description: Threshold value for comparison
+          example: 25
+
     WorkflowExecutionInput:
       type: object
       description: Input data for workflow execution
       properties:
-        variables:
+        formData:
           type: object
-          description: Input variables for the workflow
+          description: Form data from user input - flexible map to support different workflows
           additionalProperties: true
           example:
-            name: "Alice"
-            email: "alice@example.com"
+            name: "Will"
+            email: "will@gmail.com"
             city: "Sydney"
-            threshold: 25
             operator: "greater_than"
+            threshold: 25
+        condition:
+          $ref: '#/components/schemas/Condition'
 
     WorkflowExecutionResult:
       type: object
       required:
         - executedAt
         - status
+        - steps
       properties:
         executedAt:
           type: string

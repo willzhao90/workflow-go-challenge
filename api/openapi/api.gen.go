@@ -20,6 +20,15 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for ConditionOperator.
+const (
+	Equals             ConditionOperator = "equals"
+	GreaterThan        ConditionOperator = "greater_than"
+	GreaterThanOrEqual ConditionOperator = "greater_than_or_equal"
+	LessThan           ConditionOperator = "less_than"
+	LessThanOrEqual    ConditionOperator = "less_than_or_equal"
+)
+
 // Defines values for ExecutionStepStatus.
 const (
 	ExecutionStepStatusCompleted ExecutionStepStatus = "completed"
@@ -36,13 +45,25 @@ const (
 
 // Defines values for WorkflowNodeType.
 const (
-	Condition   WorkflowNodeType = "condition"
-	Email       WorkflowNodeType = "email"
-	End         WorkflowNodeType = "end"
-	Form        WorkflowNodeType = "form"
-	Integration WorkflowNodeType = "integration"
-	Start       WorkflowNodeType = "start"
+	WorkflowNodeTypeCondition   WorkflowNodeType = "condition"
+	WorkflowNodeTypeEmail       WorkflowNodeType = "email"
+	WorkflowNodeTypeEnd         WorkflowNodeType = "end"
+	WorkflowNodeTypeForm        WorkflowNodeType = "form"
+	WorkflowNodeTypeIntegration WorkflowNodeType = "integration"
+	WorkflowNodeTypeStart       WorkflowNodeType = "start"
 )
+
+// Condition Condition parameters for workflow execution
+type Condition struct {
+	// Operator Comparison operator for condition evaluation
+	Operator ConditionOperator `json:"operator"`
+
+	// Threshold Threshold value for comparison
+	Threshold float32 `json:"threshold"`
+}
+
+// ConditionOperator Comparison operator for condition evaluation
+type ConditionOperator string
 
 // Error defines model for Error.
 type Error struct {
@@ -148,8 +169,11 @@ type WorkflowEdge struct {
 
 // WorkflowExecutionInput Input data for workflow execution
 type WorkflowExecutionInput struct {
-	// Variables Input variables for the workflow
-	Variables *map[string]interface{} `json:"variables,omitempty"`
+	// Condition Condition parameters for workflow execution
+	Condition *Condition `json:"condition,omitempty"`
+
+	// FormData Form data from user input - flexible map to support different workflows
+	FormData *map[string]interface{} `json:"formData,omitempty"`
 }
 
 // WorkflowExecutionResult defines model for WorkflowExecutionResult.
@@ -161,7 +185,7 @@ type WorkflowExecutionResult struct {
 	Status WorkflowExecutionResultStatus `json:"status"`
 
 	// Steps Execution details for each step
-	Steps *[]ExecutionStep `json:"steps,omitempty"`
+	Steps []ExecutionStep `json:"steps"`
 }
 
 // WorkflowExecutionResultStatus Overall execution status
@@ -396,33 +420,35 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

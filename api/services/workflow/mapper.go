@@ -165,15 +165,17 @@ func CreateExecutionResult(status api.WorkflowExecutionResultStatus, steps []api
 	return &api.WorkflowExecutionResult{
 		ExecutedAt: now,
 		Status:     status,
-		Steps:      &steps,
+		Steps:      steps,
 	}
 }
 
 // CreateExecutionStep creates a single execution step
 func CreateExecutionStep(nodeId string, nodeType string, status api.ExecutionStepStatus) api.ExecutionStep {
+	output := make(map[string]interface{})
 	return api.ExecutionStep{
 		NodeId: nodeId,
 		Type:   nodeType,
 		Status: status,
+		Output: &output,
 	}
 }
