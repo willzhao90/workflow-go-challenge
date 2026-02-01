@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"database/sql"
 	"net/http"
 
 	"workflow-code-test/api/pkg/db"
@@ -12,9 +11,7 @@ import (
 )
 
 type Service struct {
-	db         *pgxpool.Pool
-	sqlDB      *sql.DB
-	repository *db.WorkflowRepository
+	db db.WorkFlowDB
 }
 
 func NewService(pool *pgxpool.Pool) (*Service, error) {
@@ -25,9 +22,7 @@ func NewService(pool *pgxpool.Pool) (*Service, error) {
 	repository := db.NewWorkflowRepository(sqlDB)
 
 	return &Service{
-		db:         pool,
-		sqlDB:      sqlDB,
-		repository: repository,
+		db: repository,
 	}, nil
 }
 

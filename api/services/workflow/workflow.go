@@ -16,8 +16,11 @@ func (s *Service) HandleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	slog.Debug("Returning workflow definition for id", "id", id)
 
+	// Set Content-Type header for all responses
+	w.Header().Set("Content-Type", "application/json")
+
 	// Get workflow from database using repository
-	workflow, err := s.repository.GetWorkflowByID(r.Context(), id)
+	workflow, err := s.db.GetWorkflowByID(r.Context(), id)
 	if err != nil {
 		slog.Error("Failed to get workflow", "error", err, "id", id)
 
@@ -50,7 +53,6 @@ func (s *Service) HandleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send response
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(apiWorkflow); err != nil {
 		slog.Error("Failed to encode response", "error", err)
@@ -313,6 +315,9 @@ func (s *Service) HandleExecuteWorkflow(w http.ResponseWriter, r *http.Request) 
 	id := mux.Vars(r)["id"]
 	slog.Debug("Handling workflow execution for id", "id", id)
 
+	// Set Content-Type header for all responses
+	w.Header().Set("Content-Type", "application/json")
+
 	// Parse request body
 	var input api.WorkflowExecutionInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -347,7 +352,6 @@ func (s *Service) HandleExecuteWorkflow(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Send response
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(result); err != nil {
 		slog.Error("Failed to encode response", "error", err)

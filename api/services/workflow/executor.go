@@ -13,16 +13,6 @@ import (
 	api "workflow-code-test/api/openapi"
 )
 
-// WeatherAPIResponse represents the Open-Meteo API response
-type WeatherAPIResponse struct {
-	CurrentWeather struct {
-		Temperature float64 `json:"temperature"`
-		Time        string  `json:"time"`
-	} `json:"current_weather"`
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-}
-
 // ExecuteWorkflow handles the actual workflow execution
 func (s *Service) ExecuteWorkflow(ctx context.Context, workflowID string, input api.WorkflowExecutionInput) (*api.WorkflowExecutionResult, error) {
 	// Initialize results
@@ -33,7 +23,7 @@ func (s *Service) ExecuteWorkflow(ctx context.Context, workflowID string, input 
 	}
 
 	// Get workflow definition from database
-	workflow, err := s.repository.GetWorkflowByID(ctx, workflowID)
+	workflow, err := s.db.GetWorkflowByID(ctx, workflowID)
 	if err != nil {
 		return nil, fmt.Errorf("workflow not found: %w", err)
 	}
@@ -66,9 +56,10 @@ func (s *Service) executeWorkflowSteps(ctx context.Context, workflow api.Workflo
 		executeVars = *input.FormData
 	}
 
-	// Track execution state
-	var temperature float64
-	conditionMet := false
+	// Initialize executeVars if nil
+	if executeVars == nil {
+		executeVars = make(map[string]interface{})
+	}
 
 	// Build a map of nodes by ID for quick lookup
 	nodeMap := make(map[string]api.WorkflowNode)
@@ -160,7 +151,7 @@ func (s *Service) executeWorkflowSteps(ctx context.Context, workflow api.Workflo
 
 		case api.WorkflowNodeTypeIntegration:
 			// Process integration node based on metadata
-			if err := s.processIntegrationNode(node, executeVars, output); err != nil {
+			if err := s.processIntegrationNode(ctx, node, executeVars, output); err != nil {
 				step.Status = api.ExecutionStepStatusFailed
 				errorMsg := err.Error()
 				step.Error = &errorMsg
@@ -170,44 +161,47 @@ func (s *Service) executeWorkflowSteps(ctx context.Context, workflow api.Workflo
 				for k, v := range output {
 					executeVars[k] = v
 				}
-				// Special handling for temperature tracking
-				if temp, ok := output["temperature"].(float64); ok {
-					temperature = temp
+
+				// Replace placeholders in description with actual values
+				if node.Data != nil && node.Data.Description != nil {
+					updatedDesc := *node.Data.Description
+					for key, value := range executeVars {
+						placeholder := fmt.Sprintf("{{%s}}", key)
+						updatedDesc = strings.ReplaceAll(updatedDesc, placeholder, fmt.Sprintf("%v", value))
+					}
+					description = updatedDesc
+					step.Description = &description
 				}
 			}
 
 		case api.WorkflowNodeTypeCondition:
-			// Evaluate condition
-			if input.Condition != nil {
-				conditionMet = evaluateCondition(temperature, string(input.Condition.Operator), float64(input.Condition.Threshold))
-				output["message"] = fmt.Sprintf("Temperature %.1f°C is %s %.1f°C - condition %s",
-					temperature, input.Condition.Operator, input.Condition.Threshold,
-					map[bool]string{true: "met", false: "not met"}[conditionMet])
-				output["conditionMet"] = conditionMet
-				output["threshold"] = input.Condition.Threshold
-				output["operator"] = string(input.Condition.Operator)
-				output["actualValue"] = temperature
+			// Process condition node based on metadata
+			if err := s.processConditionNode(node, executeVars, output, input.Condition); err != nil {
+				step.Status = api.ExecutionStepStatusFailed
+				errorMsg := err.Error()
+				step.Error = &errorMsg
+				output["message"] = "Failed to evaluate condition"
+			} else {
+				// Update executeVars with output values
+				for k, v := range output {
+					executeVars[k] = v
+				}
 			}
 
 		case api.WorkflowNodeTypeEmail:
-			if conditionMet {
-				email, _ := executeVars["email"].(string)
-				city, _ := executeVars["city"].(string)
-
-				output["emailDraft"] = map[string]interface{}{
-					"to":        email,
-					"from":      "weather-alerts@example.com",
-					"subject":   "Weather Alert",
-					"body":      fmt.Sprintf("Weather alert for %s! Temperature is %.1f°C!", city, temperature),
-					"timestamp": time.Now().Format(time.RFC3339),
-				}
-				output["deliveryStatus"] = "sent"
-				output["messageId"] = "msg_" + fmt.Sprintf("%d", time.Now().Unix())
-				output["emailSent"] = true
+			// Process email node based on metadata
+			if err := s.processEmailNode(node, executeVars, output); err != nil {
+				step.Status = api.ExecutionStepStatusFailed
+				errorMsg := err.Error()
+				step.Error = &errorMsg
+				output["message"] = "Failed to process email"
 			} else {
-				// Skip email if condition not met
-				step.Status = api.ExecutionStepStatusSkipped
-				output["message"] = "Email alert skipped - condition not met"
+				// Check if email should be sent based on condition
+				conditionMet, _ := executeVars["conditionMet"].(bool)
+				if !conditionMet {
+					step.Status = api.ExecutionStepStatusSkipped
+					output["message"] = "Email alert skipped - condition not met"
+				}
 			}
 
 		case api.WorkflowNodeTypeEnd:
@@ -221,6 +215,9 @@ func (s *Service) executeWorkflowSteps(ctx context.Context, workflow api.Workflo
 		for _, edge := range edges {
 			// For conditional nodes, check the sourceHandle
 			if node.Type == api.WorkflowNodeTypeCondition {
+				// Get conditionMet from executeVars
+				conditionMet, _ := executeVars["conditionMet"].(bool)
+
 				// Check if this edge should be followed based on condition result
 				if edge.SourceHandle != nil {
 					if (*edge.SourceHandle == "true" && conditionMet) || (*edge.SourceHandle == "false" && !conditionMet) {
@@ -241,7 +238,7 @@ func (s *Service) executeWorkflowSteps(ctx context.Context, workflow api.Workflo
 }
 
 // processIntegrationNode processes integration node based on its metadata configuration
-func (s *Service) processIntegrationNode(node api.WorkflowNode, executeVars map[string]interface{}, output map[string]interface{}) error {
+func (s *Service) processIntegrationNode(ctx context.Context, node api.WorkflowNode, executeVars map[string]interface{}, output map[string]interface{}) error {
 	// Check if node has metadata
 	if node.Data == nil || node.Data.Metadata == nil {
 		return fmt.Errorf("integration node missing metadata")
@@ -331,8 +328,15 @@ func (s *Service) processIntegrationNode(node api.WorkflowNode, executeVars map[
 		apiURL = strings.ReplaceAll(apiURL, placeholder, fmt.Sprintf("%v", value))
 	}
 
-	// Make HTTP request
-	resp, err := http.Get(apiURL)
+	// Make HTTP request with context
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		slog.Error("Failed to create request", "error", err, "url", apiURL)
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		slog.Error("Failed to call API", "error", err, "url", apiURL)
 		return fmt.Errorf("failed to call API: %w", err)
@@ -346,54 +350,158 @@ func (s *Service) processIntegrationNode(node api.WorkflowNode, executeVars map[
 		return fmt.Errorf("failed to read API response: %w", err)
 	}
 
-	// Parse JSON response
-	var responseData map[string]interface{}
-	if err := json.Unmarshal(body, &responseData); err != nil {
-		slog.Error("Failed to parse API response", "error", err)
+	// Parse JSON response with proper number handling
+	var responseData interface{}
+	decoder := json.NewDecoder(strings.NewReader(string(body)))
+	decoder.UseNumber() // This ensures numbers are preserved properly
+	if err := decoder.Decode(&responseData); err != nil {
+		slog.Error("Failed to parse API response", "error", err, "body", string(body))
 		return fmt.Errorf("failed to parse API response: %w", err)
 	}
+
+	// Convert to map if it's a map
+	responseMap, ok := responseData.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("API response is not a JSON object")
+	}
+
+	// Log the response for debugging
+	slog.Debug("API response received", "url", apiURL, "response", responseMap)
 
 	// Get outputVariables from metadata
 	outputVariables, hasOutputVars := metadata["outputVariables"]
 	if hasOutputVars {
 		outputVarsList, ok := outputVariables.([]interface{})
 		if ok {
-			// Extract specified output variables from response
+			// Extract specified output variables from response using recursive search
 			for _, varName := range outputVarsList {
 				varNameStr, ok := varName.(string)
 				if !ok {
 					continue
 				}
 
-				// Special handling for nested response data
-				if varNameStr == "temperature" {
-					// Check for temperature in current_weather
-					if currentWeather, ok := responseData["current_weather"].(map[string]interface{}); ok {
-						if temp, ok := currentWeather["temperature"].(float64); ok {
-							output["temperature"] = temp
-						}
-					}
+				// Search for the variable in the response (up to 2 levels deep)
+				if value := findValueInMap(responseMap, varNameStr, 0, 2); value != nil {
+					output[varNameStr] = value
+					slog.Debug("Found output variable", "variable", varNameStr, "value", value)
 				} else {
-					// Direct extraction from response
-					if value, exists := responseData[varNameStr]; exists {
-						output[varNameStr] = value
-					}
+					slog.Debug("Output variable not found in response", "variable", varNameStr)
 				}
 			}
 		}
 	}
 
-	// Add location info from input
-	if city, exists := inputValues["city"]; exists {
-		output["location"] = city
-	}
-
-	// Add success message
+	// Add a success message if we got temperature
 	if temp, ok := output["temperature"].(float64); ok {
 		if city, ok := inputValues["city"].(string); ok {
 			output["message"] = fmt.Sprintf("Weather data fetched for %s: %.1f°C", city, temp)
 		}
 	}
+
+	// Copy input values to output if they're also listed in outputVariables
+	// This handles cases where we want to pass through input values
+	if outputVarsList, ok := outputVariables.([]interface{}); ok {
+		for _, varName := range outputVarsList {
+			varNameStr, ok := varName.(string)
+			if !ok {
+				continue
+			}
+			// If not already in output and exists in input, copy it
+			if _, exists := output[varNameStr]; !exists {
+				if value, exists := inputValues[varNameStr]; exists {
+					output[varNameStr] = value
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// findValueInMap recursively searches for a key in a map up to maxDepth levels
+// It collects all matching values and returns the first numeric one if available
+func findValueInMap(data map[string]interface{}, key string, currentDepth int, maxDepth int) interface{} {
+	var candidates []interface{}
+	findValueInMapHelper(data, key, currentDepth, maxDepth, &candidates)
+
+	// Prefer numeric values over strings
+	for _, candidate := range candidates {
+		switch v := candidate.(type) {
+		case float64:
+			return v
+		case json.Number:
+			if floatVal, err := v.Float64(); err == nil {
+				return floatVal
+			}
+		case int, int64, int32, float32:
+			return v
+		}
+	}
+
+	// If no numeric value found, return the first candidate if any
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+
+	return nil
+}
+
+// findValueInMapHelper is a helper that collects all values for a given key
+func findValueInMapHelper(data map[string]interface{}, key string, currentDepth int, maxDepth int, candidates *[]interface{}) {
+	// Check if the key exists at the current level
+	if value, exists := data[key]; exists {
+		// Handle JSON number type
+		switch v := value.(type) {
+		case json.Number:
+			if floatVal, err := v.Float64(); err == nil {
+				*candidates = append(*candidates, floatVal)
+			} else {
+				*candidates = append(*candidates, v)
+			}
+		default:
+			*candidates = append(*candidates, value)
+		}
+	}
+
+	// If we've reached max depth, stop searching
+	if currentDepth >= maxDepth {
+		return
+	}
+
+	// Recursively search in nested maps
+	for _, v := range data {
+		switch nested := v.(type) {
+		case map[string]interface{}:
+			findValueInMapHelper(nested, key, currentDepth+1, maxDepth, candidates)
+		}
+	}
+}
+
+// processConditionNode processes condition node based on its metadata and executeVars
+func (s *Service) processConditionNode(node api.WorkflowNode, executeVars map[string]interface{}, output map[string]interface{}, condition *api.Condition) error {
+	// Check if condition configuration is provided
+	if condition == nil {
+		return fmt.Errorf("condition configuration is missing")
+	}
+
+	// Get the value to evaluate (e.g., temperature) from executeVars
+	// This should be configurable in metadata, but for now we'll use temperature
+	temperature, ok := executeVars["temperature"].(float64)
+	if !ok {
+		return fmt.Errorf("temperature not found in executeVars or invalid type")
+	}
+
+	// Evaluate the condition
+	conditionMet := evaluateCondition(temperature, string(condition.Operator), float64(condition.Threshold))
+
+	// Store results in output
+	output["conditionMet"] = conditionMet
+	output["threshold"] = condition.Threshold
+	output["operator"] = string(condition.Operator)
+	output["actualValue"] = temperature
+	output["message"] = fmt.Sprintf("Temperature %.1f°C is %s %.1f°C - condition %s",
+		temperature, condition.Operator, condition.Threshold,
+		map[bool]string{true: "met", false: "not met"}[conditionMet])
 
 	return nil
 }
@@ -417,6 +525,111 @@ func evaluateCondition(value float64, operator string, threshold float64) bool {
 	}
 }
 
+// processEmailNode processes email node based on its metadata configuration
+func (s *Service) processEmailNode(node api.WorkflowNode, executeVars map[string]interface{}, output map[string]interface{}) error {
+	// Check if node has metadata
+	if node.Data == nil || node.Data.Metadata == nil {
+		return fmt.Errorf("email node missing metadata")
+	}
+
+	metadata := *node.Data.Metadata
+
+	// Check if condition was met (for conditional emails)
+	conditionMet, hasCondition := executeVars["conditionMet"].(bool)
+	if hasCondition && !conditionMet {
+		// Condition not met, email will be skipped
+		return nil
+	}
+
+	// Get inputVariables from metadata
+	inputVariables, hasInputVars := metadata["inputVariables"]
+	var inputValues map[string]interface{}
+
+	if hasInputVars {
+		inputVarsList, ok := inputVariables.([]interface{})
+		if ok {
+			inputValues = make(map[string]interface{})
+			for _, varName := range inputVarsList {
+				varNameStr, ok := varName.(string)
+				if !ok {
+					continue
+				}
+
+				// Get value from executeVars
+				if value, exists := executeVars[varNameStr]; exists {
+					inputValues[varNameStr] = value
+				} else {
+					slog.Debug("Input variable not found in executeVars", "variable", varNameStr)
+				}
+			}
+		}
+	}
+
+	// Get email template from metadata
+	emailTemplate, hasTemplate := metadata["emailTemplate"]
+	if !hasTemplate {
+		return fmt.Errorf("email node missing emailTemplate in metadata")
+	}
+
+	templateMap, ok := emailTemplate.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("emailTemplate must be an object")
+	}
+
+	// Process email template - replace placeholders with values
+	subject, _ := templateMap["subject"].(string)
+	body, _ := templateMap["body"].(string)
+
+	// Replace placeholders in subject and body
+	for key, value := range executeVars {
+		placeholder := fmt.Sprintf("{{%s}}", key)
+		subject = strings.ReplaceAll(subject, placeholder, fmt.Sprintf("%v", value))
+		body = strings.ReplaceAll(body, placeholder, fmt.Sprintf("%v", value))
+	}
+
+	// Get recipient email
+	email := ""
+	if emailValue, exists := executeVars["email"]; exists {
+		email, _ = emailValue.(string)
+	}
+
+	// Build email draft
+	output["emailDraft"] = map[string]interface{}{
+		"to":        email,
+		"from":      "weather-alerts@example.com", // This could also come from metadata
+		"subject":   subject,
+		"body":      body,
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+
+	// Set delivery status
+	output["deliveryStatus"] = "sent"
+	output["messageId"] = fmt.Sprintf("msg_%d", time.Now().Unix())
+	output["emailSent"] = true
+
+	// Get outputVariables from metadata and set them
+	if outputVariables, hasOutputVars := metadata["outputVariables"]; hasOutputVars {
+		if outputVarsList, ok := outputVariables.([]interface{}); ok {
+			for _, varName := range outputVarsList {
+				varNameStr, ok := varName.(string)
+				if !ok {
+					continue
+				}
+
+				// Set the output variable if it's already defined above
+				if _, exists := output[varNameStr]; !exists {
+					// If the output variable is not set yet, check if it should come from input
+					if value, exists := inputValues[varNameStr]; exists {
+						output[varNameStr] = value
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 // processFormNode processes form node data based on its metadata configuration
 func (s *Service) processFormNode(node api.WorkflowNode, executeVars map[string]interface{}, output map[string]interface{}) error {
 	// Check if node has metadata
@@ -428,7 +641,6 @@ func (s *Service) processFormNode(node api.WorkflowNode, executeVars map[string]
 		return nil
 	}
 
-	// node.Data.Metadata is already a pointer to map[string]interface{}
 	metadata := *node.Data.Metadata
 
 	// Check for outputVariables in metadata

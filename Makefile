@@ -11,8 +11,10 @@ help:
 	@echo "  make db-connect     - Connect to PostgreSQL database via psql"
 	@echo "  make db-migrate     - Run database migrations"
 	@echo "  make api-generate   - Generate Go code from OpenAPI specification"
+	@echo "  make generate-mocks - Generate mock files for testing"
 	@echo "  make api-build      - Build the API server"
 	@echo "  make api-run        - Run the API server locally"
+	@echo "  make api-test       - Run API unit tests"
 
 .PHONY: db-connect
 db-connect:
@@ -32,6 +34,13 @@ db-migrate:
 api-generate:
 	@echo "Generating Go code from OpenAPI specification..."
 	@cd api/openapi && ./generate.sh
+
+# Generate mocks for testing
+.PHONY: generate-mocks
+generate-mocks:
+	@echo "Generating mocks for testing..."
+	@cd api && mockgen -source=pkg/db/workflow_repository.go -destination=mocks/mock_workflow_db.go -package=mocks WorkFlowDB
+	@echo "Mocks generated successfully!"
 
 # Build the API
 .PHONY: api-build
@@ -53,3 +62,15 @@ api-rebuild: api-generate api-build
 # Development mode - regenerate, build and run
 .PHONY: api-dev
 api-dev: api-generate api-run
+
+# Run tests
+.PHONY: api-test
+api-test:
+	@echo "Running API unit tests..."
+	@cd api && go test -v ./...
+
+# Run specific test
+.PHONY: api-test-workflow
+api-test-workflow:
+	@echo "Running workflow service tests..."
+	@cd api && go test -v ./services/workflow/...
