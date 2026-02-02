@@ -3,88 +3,29 @@ package main
 import (
 	"context"
 	"log/slog"
-	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
-	"time"
 
-	"github.com/gorilla/handlers"
-	"github.com/gorilla/mux"
-
-	"workflow-code-test/api/pkg/db"
-	"workflow-code-test/api/services/workflow"
+	"workflow-code-test/api/builder"
 )
 
 func main() {
+	// Create a context for the application
 	ctx := context.Background()
-	logHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	})
-	slog.SetDefault(slog.New(logHandler))
 
-	dbURL, ok := os.LookupEnv("DATABASE_URL")
-	if !ok {
-		slog.Error("DATABASE_URL is not set")
-		return
-	}
-
-	pool, err := db.Connect(ctx, dbURL)
+	// Build the application using the builder package
+	app, err := builder.Build(ctx)
 	if err != nil {
-		slog.Error("Failed to connect to database", "error", err)
-		return
-	}
-	defer pool.Close()
-
-	// setup router
-	mainRouter := mux.NewRouter()
-
-	apiRouter := mainRouter.PathPrefix("/api/v1").Subrouter()
-
-	workflowService, err := workflow.NewService(pool)
-	if err != nil {
-		slog.Error("Failed to create workflow service", "error", err)
-		return
+		// If we can't build the app, log and exit
+		slog.Error("Failed to build application", "error", err)
+		os.Exit(1)
 	}
 
-	workflowService.LoadRoutes(apiRouter)
+	// Ensure resources are cleaned up on exit
+	defer app.Close()
 
-	corsHandler := handlers.CORS(
-		// Frontend URL
-		handlers.AllowedOrigins([]string{"http://localhost:3003"}),
-		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
-		handlers.AllowedHeaders([]string{"Content-Type", "Authorization"}),
-		handlers.AllowCredentials(),
-	)(mainRouter)
-
-	srv := &http.Server{
-		Addr:    ":8080",
-		Handler: corsHandler,
-	}
-
-	serverErrors := make(chan error, 1)
-
-	go func() {
-		slog.Info("Starting server on :8080")
-		serverErrors <- srv.ListenAndServe()
-	}()
-
-	shutdown := make(chan os.Signal, 1)
-	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
-
-	select {
-	case err := <-serverErrors:
-		slog.Error("Server error", "error", err)
-
-	case sig := <-shutdown:
-		slog.Info("Shutdown signal received", "signal", sig)
-
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-
-		if err := srv.Shutdown(ctx); err != nil {
-			slog.Error("Could not stop server gracefully", "error", err)
-			srv.Close()
-		}
+	// Run the application (this handles the server and graceful shutdown)
+	if err := app.Run(ctx); err != nil {
+		app.Logger.Error("Application stopped with error", "error", err)
+		os.Exit(1)
 	}
 }

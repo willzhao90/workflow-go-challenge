@@ -15,6 +15,8 @@ help:
 	@echo "  make api-build      - Build the API server"
 	@echo "  make api-run        - Run the API server locally"
 	@echo "  make api-test       - Run API unit tests"
+	@echo "  make api-lint       - Run golangci-lint checks"
+	@echo "  make api-lint-fix   - Run golangci-lint with auto-fix"
 
 .PHONY: db-connect
 db-connect:
@@ -74,3 +76,22 @@ api-test:
 api-test-workflow:
 	@echo "Running workflow service tests..."
 	@cd api && go test -v ./services/workflow/...
+
+# Lint the code
+.PHONY: api-lint
+api-lint:
+	@echo "Running golangci-lint..."
+	@cd api && golangci-lint run ./...
+
+# Lint with auto-fix
+.PHONY: api-lint-fix
+api-lint-fix:
+	@echo "Running golangci-lint with auto-fix..."
+	@cd api && golangci-lint run --fix ./...
+
+# Install lint tool
+.PHONY: api-lint-install
+api-lint-install:
+	@echo "Installing golangci-lint v2..."
+	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+	@echo "golangci-lint v2 installed successfully!"

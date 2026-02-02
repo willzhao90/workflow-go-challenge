@@ -341,7 +341,11 @@ func (s *Service) processIntegrationNode(ctx context.Context, node api.WorkflowN
 		slog.Error("Failed to call API", "error", err, "url", apiURL)
 		return fmt.Errorf("failed to call API: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Warn("Failed to close response body", "error", err)
+		}
+	}()
 
 	// Read response body
 	body, err := io.ReadAll(resp.Body)

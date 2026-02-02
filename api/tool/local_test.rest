@@ -1,0 +1,28 @@
+#####
+# Weather public API
+GET https://api.open-meteo.com/v1/forecast?latitude=-33.8688&longitude=151.2093&current_weather=true
+Content-Type: application/json
+
+#####
+# Get workflow
+GET http://localhost:3003/api/v1/workflows/550e8400-e29b-41d4-a716-446655440000
+Content-Type: application/json
+
+#####
+# Excecute workflow
+POST http://localhost:3003/api/v1/workflows/550e8400-e29b-41d4-a716-446655440000/execute
+Content-Type: application/json
+
+{
+    "formData": {
+        "name": "WILL",
+        "email": "will@gmail.com",
+        "city": "Sydney",
+        "operator": "greater_than",
+        "threshold": 21
+    },
+    "condition": {
+        "operator": "greater_than",
+        "threshold": 21
+    }
+}

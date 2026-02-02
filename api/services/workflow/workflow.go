@@ -26,18 +26,12 @@ func (s *Service) HandleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 
 		// Check if workflow not found
 		if err.Error() == fmt.Sprintf("workflow not found: %s", id) {
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(api.Error{
-				Error: "Workflow not found",
-			})
+			writeErrorResponse(w, http.StatusNotFound, "Workflow not found")
 			return
 		}
 
 		// Other database errors
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(api.Error{
-			Error: "Failed to retrieve workflow",
-		})
+		writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve workflow")
 		return
 	}
 
@@ -45,10 +39,7 @@ func (s *Service) HandleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 	apiWorkflow, err := MapDBWorkflowToAPI(workflow)
 	if err != nil {
 		slog.Error("Failed to map workflow", "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(api.Error{
-			Error: "Failed to process workflow",
-		})
+		writeErrorResponse(w, http.StatusInternalServerError, "Failed to process workflow")
 		return
 	}
 
@@ -307,7 +298,9 @@ func (s *Service) HandleGetWorkflowHardcoded(w http.ResponseWriter, r *http.Requ
 	}`
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(workflowJSON))
+	if _, err := w.Write([]byte(workflowJSON)); err != nil {
+		slog.Error("error write response")
+	}
 }
 
 // HandleExecuteWorkflow executes a workflow with the provided input data
@@ -322,10 +315,7 @@ func (s *Service) HandleExecuteWorkflow(w http.ResponseWriter, r *http.Request) 
 	var input api.WorkflowExecutionInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		slog.Error("Failed to parse request body", "error", err)
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(api.Error{
-			Error: "Invalid request body",
-		})
+		writeErrorResponse(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -336,18 +326,12 @@ func (s *Service) HandleExecuteWorkflow(w http.ResponseWriter, r *http.Request) 
 
 		// Check if workflow not found
 		if err.Error() == fmt.Sprintf("workflow not found: workflow not found: %s", id) {
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(api.Error{
-				Error: "Workflow not found",
-			})
+			writeErrorResponse(w, http.StatusNotFound, "Workflow not found")
 			return
 		}
 
 		// Other errors
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(api.Error{
-			Error: "Failed to execute workflow",
-		})
+		writeErrorResponse(w, http.StatusInternalServerError, "Failed to execute workflow")
 		return
 	}
 

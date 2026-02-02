@@ -1,0 +1,35 @@
+version: "2"
+
+run:
+  timeout: 3m
+
+issues:
+  max-same-issues: 0
+  
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+linters:
+  enable:
+    # These are enabled by default in v2
+    - govet        # Static analysis
+    - errcheck     # Error checking  
+    - staticcheck  # Static checking
+    - ineffassign  # Detect unused assignments
+    - unused       # Detect unused code
+    # Additional linters we want to enable
+    - gosec        # Security checks
+    - bodyclose    # Check HTTP response body closed
+    - misspell     # Check for misspellings
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+    paths:
+      - mocks
+      - pkg/db/models
+      - openapi
