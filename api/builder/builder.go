@@ -131,8 +131,9 @@ func SetupServer(config *Config, router *mux.Router) *http.Server {
 	)(router)
 
 	return &http.Server{
-		Addr:    ":" + config.ServerPort,
-		Handler: corsHandler,
+		Addr:              ":" + config.ServerPort,
+		Handler:           corsHandler,
+		ReadHeaderTimeout: 1 * time.Minute,
 	}
 }
 
@@ -214,7 +215,9 @@ func (app *App) Shutdown(ctx context.Context) error {
 	// Shutdown the HTTP server
 	if err := app.Server.Shutdown(shutdownCtx); err != nil {
 		app.Logger.Error("Could not stop server gracefully", "error", err)
-		app.Server.Close()
+		if err := app.Server.Close(); err != nil {
+			app.Logger.Error("close HTTP server error", "error", err)
+		}
 	}
 
 	// Close database connection
