@@ -13,6 +13,8 @@ import (
 	api "workflow-code-test/api/openapi"
 )
 
+const StartNodeID = "start"
+
 // ExecuteWorkflow handles the actual workflow execution
 func (s *Service) ExecuteWorkflow(ctx context.Context, workflowID string, input api.WorkflowExecutionInput) (*api.WorkflowExecutionResult, error) {
 	// Initialize results
@@ -51,14 +53,9 @@ func (s *Service) executeWorkflowSteps(ctx context.Context, workflow api.Workflo
 	steps := []api.ExecutionStep{}
 
 	// Extract values from input for use in execution
-	var executeVars map[string]interface{}
+	var executeVars = make(map[string]any)
 	if input.FormData != nil {
 		executeVars = *input.FormData
-	}
-
-	// Initialize executeVars if nil
-	if executeVars == nil {
-		executeVars = make(map[string]interface{})
 	}
 
 	// Build a map of nodes by ID for quick lookup
@@ -77,24 +74,11 @@ func (s *Service) executeWorkflowSteps(ctx context.Context, workflow api.Workflo
 		}
 	}
 
-	// Find start node
-	var startNodeId string
-	for _, node := range *workflow.Nodes {
-		if node.Type == api.WorkflowNodeTypeStart {
-			startNodeId = node.Id
-			break
-		}
-	}
-
-	if startNodeId == "" {
-		return nil, fmt.Errorf("no start node found in workflow")
-	}
-
 	// Track visited nodes to avoid cycles
 	visited := make(map[string]bool)
 
 	// Execute nodes using BFS traversal from start node
-	queue := []string{startNodeId}
+	queue := []string{StartNodeID}
 
 	for len(queue) > 0 {
 		currentNodeId := queue[0]
@@ -112,102 +96,9 @@ func (s *Service) executeWorkflowSteps(ctx context.Context, workflow api.Workflo
 			slog.Warn("Node not found in nodeMap", "nodeId", currentNodeId)
 			continue
 		}
-		output := make(map[string]interface{})
 
-		// Get label and description from node data
-		var label, description string
-		if node.Data != nil {
-			if node.Data.Label != nil {
-				label = *node.Data.Label
-			}
-			if node.Data.Description != nil {
-				description = *node.Data.Description
-			}
-		}
-
-		step := api.ExecutionStep{
-			NodeId:      node.Id,
-			Type:        string(node.Type),
-			Status:      api.ExecutionStepStatusCompleted,
-			Label:       &label,
-			Description: &description,
-			Output:      &output,
-		}
-
-		switch node.Type {
-		case api.WorkflowNodeTypeStart:
-			output["message"] = "Workflow started successfully"
-
-		case api.WorkflowNodeTypeForm:
-			// Process form fields based on metadata
-			if err := s.processFormNode(node, executeVars, output); err != nil {
-				step.Status = api.ExecutionStepStatusFailed
-				errorMsg := err.Error()
-				step.Error = &errorMsg
-				output["message"] = "Failed to process form data"
-			} else {
-				output["message"] = "Form data processed successfully"
-			}
-
-		case api.WorkflowNodeTypeIntegration:
-			// Process integration node based on metadata
-			if err := s.processIntegrationNode(ctx, node, executeVars, output); err != nil {
-				step.Status = api.ExecutionStepStatusFailed
-				errorMsg := err.Error()
-				step.Error = &errorMsg
-				output["message"] = "Failed to process integration"
-			} else {
-				// Update executeVars with output values for subsequent steps
-				for k, v := range output {
-					executeVars[k] = v
-				}
-
-				// Replace placeholders in description with actual values
-				if node.Data != nil && node.Data.Description != nil {
-					updatedDesc := *node.Data.Description
-					for key, value := range executeVars {
-						placeholder := fmt.Sprintf("{{%s}}", key)
-						updatedDesc = strings.ReplaceAll(updatedDesc, placeholder, fmt.Sprintf("%v", value))
-					}
-					description = updatedDesc
-					step.Description = &description
-				}
-			}
-
-		case api.WorkflowNodeTypeCondition:
-			// Process condition node based on metadata
-			if err := s.processConditionNode(node, executeVars, output, input.Condition); err != nil {
-				step.Status = api.ExecutionStepStatusFailed
-				errorMsg := err.Error()
-				step.Error = &errorMsg
-				output["message"] = "Failed to evaluate condition"
-			} else {
-				// Update executeVars with output values
-				for k, v := range output {
-					executeVars[k] = v
-				}
-			}
-
-		case api.WorkflowNodeTypeEmail:
-			// Process email node based on metadata
-			if err := s.processEmailNode(node, executeVars, output); err != nil {
-				step.Status = api.ExecutionStepStatusFailed
-				errorMsg := err.Error()
-				step.Error = &errorMsg
-				output["message"] = "Failed to process email"
-			} else {
-				// Check if email should be sent based on condition
-				conditionMet, _ := executeVars["conditionMet"].(bool)
-				if !conditionMet {
-					step.Status = api.ExecutionStepStatusSkipped
-					output["message"] = "Email alert skipped - condition not met"
-				}
-			}
-
-		case api.WorkflowNodeTypeEnd:
-			output["message"] = "Workflow completed successfully"
-		}
-
+		// Execute the single node
+		step := s.executeSingleNode(ctx, node, executeVars, input)
 		steps = append(steps, step)
 
 		// Find next nodes to execute based on edges
@@ -235,6 +126,107 @@ func (s *Service) executeWorkflowSteps(ctx context.Context, workflow api.Workflo
 	}
 
 	return steps, nil
+}
+
+// executeSingleNode executes a single node and returns the execution step
+func (s *Service) executeSingleNode(ctx context.Context, node api.WorkflowNode, executeVars map[string]interface{}, input api.WorkflowExecutionInput) api.ExecutionStep {
+	output := make(map[string]interface{})
+
+	// Get label and description from node data
+	var label, description string
+	if node.Data != nil {
+		if node.Data.Label != nil {
+			label = *node.Data.Label
+		}
+		if node.Data.Description != nil {
+			description = *node.Data.Description
+		}
+	}
+
+	step := api.ExecutionStep{
+		NodeId:      node.Id,
+		Type:        string(node.Type),
+		Status:      api.ExecutionStepStatusCompleted,
+		Label:       &label,
+		Description: &description,
+		Output:      &output,
+	}
+
+	switch node.Type {
+	case api.WorkflowNodeTypeStart:
+		output["message"] = "Workflow started successfully"
+
+	case api.WorkflowNodeTypeForm:
+		// Process form fields based on metadata
+		if err := s.processFormNode(node, executeVars, output); err != nil {
+			step.Status = api.ExecutionStepStatusFailed
+			errorMsg := err.Error()
+			step.Error = &errorMsg
+			output["message"] = "Failed to process form data"
+		} else {
+			output["message"] = "Form data processed successfully"
+		}
+
+	case api.WorkflowNodeTypeIntegration:
+		// Process integration node based on metadata
+		if err := s.processIntegrationNode(ctx, node, executeVars, output); err != nil {
+			step.Status = api.ExecutionStepStatusFailed
+			errorMsg := err.Error()
+			step.Error = &errorMsg
+			output["message"] = "Failed to process integration"
+		} else {
+			// Update executeVars with output values for subsequent steps
+			for k, v := range output {
+				executeVars[k] = v
+			}
+
+			// Replace placeholders in description with actual values
+			if node.Data != nil && node.Data.Description != nil {
+				updatedDesc := *node.Data.Description
+				for key, value := range executeVars {
+					placeholder := fmt.Sprintf("{{%s}}", key)
+					updatedDesc = strings.ReplaceAll(updatedDesc, placeholder, fmt.Sprintf("%v", value))
+				}
+				description = updatedDesc
+				step.Description = &description
+			}
+		}
+
+	case api.WorkflowNodeTypeCondition:
+		// Process condition node based on metadata
+		if err := s.processConditionNode(executeVars, output, input.Condition); err != nil {
+			step.Status = api.ExecutionStepStatusFailed
+			errorMsg := err.Error()
+			step.Error = &errorMsg
+			output["message"] = "Failed to evaluate condition"
+		} else {
+			// Update executeVars with output values
+			for k, v := range output {
+				executeVars[k] = v
+			}
+		}
+
+	case api.WorkflowNodeTypeEmail:
+		// Process email node based on metadata
+		if err := s.processEmailNode(node, executeVars, output); err != nil {
+			step.Status = api.ExecutionStepStatusFailed
+			errorMsg := err.Error()
+			step.Error = &errorMsg
+			output["message"] = "Failed to process email"
+		} else {
+			// Check if email should be sent based on condition
+			conditionMet, _ := executeVars["conditionMet"].(bool)
+			if !conditionMet {
+				step.Status = api.ExecutionStepStatusSkipped
+				output["message"] = "Email alert skipped - condition not met"
+			}
+		}
+
+	case api.WorkflowNodeTypeEnd:
+		output["message"] = "Workflow completed successfully"
+	}
+
+	return step
 }
 
 // processIntegrationNode processes integration node based on its metadata configuration
@@ -482,7 +474,7 @@ func findValueInMapHelper(data map[string]interface{}, key string, currentDepth 
 }
 
 // processConditionNode processes condition node based on its metadata and executeVars
-func (s *Service) processConditionNode(node api.WorkflowNode, executeVars map[string]interface{}, output map[string]interface{}, condition *api.Condition) error {
+func (s *Service) processConditionNode(executeVars map[string]interface{}, output map[string]interface{}, condition *api.Condition) error {
 	// Check if condition configuration is provided
 	if condition == nil {
 		return fmt.Errorf("condition configuration is missing")
@@ -508,25 +500,6 @@ func (s *Service) processConditionNode(node api.WorkflowNode, executeVars map[st
 		map[bool]string{true: "met", false: "not met"}[conditionMet])
 
 	return nil
-}
-
-// evaluateCondition evaluates a condition based on operator and threshold
-func evaluateCondition(value float64, operator string, threshold float64) bool {
-	switch operator {
-	case "greater_than":
-		return value > threshold
-	case "less_than":
-		return value < threshold
-	case "equals":
-		return value == threshold
-	case "greater_than_or_equal":
-		return value >= threshold
-	case "less_than_or_equal":
-		return value <= threshold
-	default:
-		slog.Warn("Unknown operator, defaulting to greater_than", "operator", operator)
-		return value > threshold
-	}
 }
 
 // processEmailNode processes email node based on its metadata configuration
@@ -699,4 +672,23 @@ func (s *Service) processFormNode(node api.WorkflowNode, executeVars map[string]
 	}
 
 	return nil
+}
+
+// evaluateCondition evaluates a condition based on operator and threshold
+func evaluateCondition(value float64, operator string, threshold float64) bool {
+	switch operator {
+	case "greater_than":
+		return value > threshold
+	case "less_than":
+		return value < threshold
+	case "equals":
+		return value == threshold
+	case "greater_than_or_equal":
+		return value >= threshold
+	case "less_than_or_equal":
+		return value <= threshold
+	default:
+		slog.Warn("Unknown operator, defaulting to greater_than", "operator", operator)
+		return value > threshold
+	}
 }

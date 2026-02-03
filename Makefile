@@ -10,6 +10,7 @@ help:
 	@echo "Available commands:"
 	@echo "  make db-connect     - Connect to PostgreSQL database via psql"
 	@echo "  make db-migrate     - Run database migrations"
+	@echo "  make db-generate    - Generate SQLBoiler models from database schema"
 	@echo "  make api-generate   - Generate Go code from OpenAPI specification"
 	@echo "  make generate-mocks - Generate mock files for testing"
 	@echo "  make api-build      - Build the API server"
@@ -30,6 +31,13 @@ db-connect:
 .PHONY: db-migrate
 db-migrate:
 	@cd api/db_migration && ./migrate.sh
+
+# Generate SQLBoiler models from database schema
+.PHONY: db-generate
+db-generate:
+	@echo "Generating SQLBoiler models from database schema..."
+	@cd api/pkg/db && sqlboiler psql
+	@echo "SQLBoiler models generated successfully!"
 
 # API code generation
 .PHONY: api-generate

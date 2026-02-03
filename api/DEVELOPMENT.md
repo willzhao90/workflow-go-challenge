@@ -5,11 +5,11 @@
 ```
 api/
 ├── openapi/          # OpenAPI spec & generated code
-├── db_migration/     # Database migrations
-├── pkg/db/          # Database layer (SQLBoiler)
-├── services/        # Business logic
-├── mocks/           # Generated mocks
-└── builder/         # API server builder
+├── db_migration/     # Database migration files
+├── pkg/db/           # Database layer
+├── services/         # Business logic and API handlers
+├── mocks/            # Generated mocks
+└── builder/          # API server setup
 ```
 
 ## Tech Stack
@@ -36,19 +36,12 @@ touch api/db_migration/sql/003_your_change.sql
 make db-migrate
 ```
 
-3. Generate SQLBoiler models:
-```bash
-cd api/pkg/db && sqlboiler psql
-# TODO: Add this to Makefile as 'make db-generate-models'
-```
+### Update Database Models (SQLBoiler)
 
-### Generate Database Models (SQLBoiler)
-
-SQLBoiler generates type-safe models from your database schema:
+SQLBoiler generates type-safe models in Go from your database schema:
 
 ```bash
-cd api/pkg/db
-sqlboiler psql  # Uses sqlboiler.toml config
+make db-generate  # Uses api/pkg/db/sqlboiler.toml config
 ```
 
 Generated models appear in `api/pkg/db/models/`
@@ -115,6 +108,7 @@ make api-lint-fix
 make help            # Show all available commands
 make db-connect      # Connect to PostgreSQL via psql
 make db-migrate      # Run database migrations
+make db-generate     # Generate SQLBoiler models from database
 make api-generate    # Generate Go code from OpenAPI spec
 make generate-mocks  # Generate mock files
 make api-build       # Build the API server
@@ -125,10 +119,18 @@ make api-lint        # Run golangci-lint
 make api-lint-fix    # Auto-fix lint issues
 ```
 
-## Best Practices
+## Practice Preference
 
 1. Always update OpenAPI spec first, then run `make api-generate`
 2. Use `make db-migrate` for all database changes
 3. Use SQLBoiler generated methods for DB operations
 4. Write unit tests with mocks (`make generate-mocks`)
 5. Run `make api-lint` before committing
+
+## TODO
+
+1. Unified Error type library with status code
+2. Better logs (suggest https://github.com/uber-go/zap)
+3. Retry logic
+4. Condition node in workflows could have input variable to make it more generic
+5. Add concurrency if have situation that multiple workflow steps run in parallel
