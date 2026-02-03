@@ -3,6 +3,7 @@ package workflow
 import (
 	"net/http"
 
+	"workflow-code-test/api/pkg/cache"
 	"workflow-code-test/api/pkg/db"
 
 	"github.com/gorilla/mux"
@@ -11,10 +12,11 @@ import (
 )
 
 type Service struct {
-	db db.WorkFlowDB
+	db    db.WorkFlowDB
+	cache cache.Cache
 }
 
-func NewService(pool *pgxpool.Pool) (*Service, error) {
+func NewService(pool *pgxpool.Pool, cacheClient cache.Cache) (*Service, error) {
 	// Create a standard sql.DB from the pgxpool for SQLBoiler
 	sqlDB := stdlib.OpenDBFromPool(pool)
 
@@ -22,7 +24,8 @@ func NewService(pool *pgxpool.Pool) (*Service, error) {
 	repository := db.NewWorkflowRepository(sqlDB)
 
 	return &Service{
-		db: repository,
+		db:    repository,
+		cache: cacheClient,
 	}, nil
 }
 

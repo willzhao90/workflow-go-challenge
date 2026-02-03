@@ -12,6 +12,16 @@ services:
     networks:
       - app-network
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+    command: redis-server --appendonly yes
+
   api:
     build:
       context: ./api
@@ -22,10 +32,12 @@ services:
       - ENV=development
       - GIN_MODE=debug
       - DATABASE_URL=postgres://workflow:workflow123@postgres:5432/workflow_engine?sslmode=disable
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./api:/app
     depends_on:
       - postgres
+      - redis
     networks:
       - app-network
 
@@ -54,3 +66,4 @@ networks:
 
 volumes:
   postgres_data:
+  redis_data:

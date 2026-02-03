@@ -10,8 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"workflow-code-test/api/mocks"
 	api "workflow-code-test/api/openapi"
+	"workflow-code-test/api/pkg/cache"
+	cachemocks "workflow-code-test/api/pkg/cache/mocks"
+	dbmocks "workflow-code-test/api/pkg/db/mocks"
 	"workflow-code-test/api/pkg/db/models"
 
 	"github.com/aarondl/null/v8"
@@ -29,7 +31,7 @@ func TestHandleGetWorkflow(t *testing.T) {
 		workflowID string
 
 		// Mock setup
-		setupMock func(mockDB *mocks.MockWorkFlowDB)
+		setupMock func(mockDB *dbmocks.MockWorkFlowDB, mockCache *cachemocks.MockCache)
 
 		// Expected response
 		expectedStatus int
@@ -38,7 +40,13 @@ func TestHandleGetWorkflow(t *testing.T) {
 	}{
 		"success_with_workflow_data": {
 			workflowID: "550e8400-e29b-41d4-a716-446655440000",
-			setupMock: func(mockDB *mocks.MockWorkFlowDB) {
+			setupMock: func(mockDB *dbmocks.MockWorkFlowDB, mockCache *cachemocks.MockCache) {
+				// Mock cache miss so it goes to database
+				cacheKey := "workflow:550e8400-e29b-41d4-a716-446655440000"
+				mockCache.EXPECT().
+					Get(gomock.Any(), cacheKey, gomock.Any()).
+					Return(cache.ErrCacheMiss{Key: cacheKey})
+
 				// Create workflow without relationships (R field will be nil)
 				// The mapper handles nil R field gracefully
 				workflow := &models.Workflow{
@@ -53,6 +61,11 @@ func TestHandleGetWorkflow(t *testing.T) {
 				mockDB.EXPECT().
 					GetWorkflowByID(gomock.Any(), "550e8400-e29b-41d4-a716-446655440000").
 					Return(workflow, nil)
+
+				// Mock cache set after retrieving from DB
+				mockCache.EXPECT().
+					Set(gomock.Any(), cacheKey, gomock.Any(), gomock.Any()).
+					Return(nil)
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(t *testing.T, body []byte) {
@@ -75,7 +88,13 @@ func TestHandleGetWorkflow(t *testing.T) {
 
 		"workflow_with_complete_nodes_and_edges": {
 			workflowID: "550e8400-e29b-41d4-a716-446655440000",
-			setupMock: func(mockDB *mocks.MockWorkFlowDB) {
+			setupMock: func(mockDB *dbmocks.MockWorkFlowDB, mockCache *cachemocks.MockCache) {
+				// Mock cache miss so it goes to database
+				cacheKey := "workflow:550e8400-e29b-41d4-a716-446655440000"
+				mockCache.EXPECT().
+					Get(gomock.Any(), cacheKey, gomock.Any()).
+					Return(cache.ErrCacheMiss{Key: cacheKey})
+
 				// Create workflow with complete node and edge data
 				workflow := &models.Workflow{
 					ID:          "550e8400-e29b-41d4-a716-446655440000",
@@ -139,6 +158,11 @@ func TestHandleGetWorkflow(t *testing.T) {
 				mockDB.EXPECT().
 					GetWorkflowByID(gomock.Any(), "550e8400-e29b-41d4-a716-446655440000").
 					Return(workflow, nil)
+
+				// Mock cache set after retrieving from DB
+				mockCache.EXPECT().
+					Set(gomock.Any(), cacheKey, gomock.Any(), gomock.Any()).
+					Return(nil)
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(t *testing.T, body []byte) {
@@ -179,7 +203,13 @@ func TestHandleGetWorkflow(t *testing.T) {
 
 		"workflow_not_found": {
 			workflowID: "non-existent-id",
-			setupMock: func(mockDB *mocks.MockWorkFlowDB) {
+			setupMock: func(mockDB *dbmocks.MockWorkFlowDB, mockCache *cachemocks.MockCache) {
+				// Mock cache miss so it goes to database
+				cacheKey := "workflow:non-existent-id"
+				mockCache.EXPECT().
+					Get(gomock.Any(), cacheKey, gomock.Any()).
+					Return(cache.ErrCacheMiss{Key: cacheKey})
+
 				mockDB.EXPECT().
 					GetWorkflowByID(gomock.Any(), "non-existent-id").
 					Return(nil, fmt.Errorf("workflow not found: non-existent-id"))
@@ -195,7 +225,13 @@ func TestHandleGetWorkflow(t *testing.T) {
 
 		"database_error": {
 			workflowID: "550e8400-e29b-41d4-a716-446655440000",
-			setupMock: func(mockDB *mocks.MockWorkFlowDB) {
+			setupMock: func(mockDB *dbmocks.MockWorkFlowDB, mockCache *cachemocks.MockCache) {
+				// Mock cache miss so it goes to database
+				cacheKey := "workflow:550e8400-e29b-41d4-a716-446655440000"
+				mockCache.EXPECT().
+					Get(gomock.Any(), cacheKey, gomock.Any()).
+					Return(cache.ErrCacheMiss{Key: cacheKey})
+
 				mockDB.EXPECT().
 					GetWorkflowByID(gomock.Any(), "550e8400-e29b-41d4-a716-446655440000").
 					Return(nil, errors.New("database connection error"))
@@ -211,7 +247,13 @@ func TestHandleGetWorkflow(t *testing.T) {
 
 		"invalid_workflow_id_format": {
 			workflowID: "invalid-uuid",
-			setupMock: func(mockDB *mocks.MockWorkFlowDB) {
+			setupMock: func(mockDB *dbmocks.MockWorkFlowDB, mockCache *cachemocks.MockCache) {
+				// Mock cache miss so it goes to database
+				cacheKey := "workflow:invalid-uuid"
+				mockCache.EXPECT().
+					Get(gomock.Any(), cacheKey, gomock.Any()).
+					Return(cache.ErrCacheMiss{Key: cacheKey})
+
 				workflow := &models.Workflow{
 					ID:          "invalid-uuid", // This will fail UUID parsing
 					Name:        "Test Workflow",
@@ -227,13 +269,19 @@ func TestHandleGetWorkflow(t *testing.T) {
 				var response api.Error
 				err := json.Unmarshal(body, &response)
 				require.NoError(t, err)
-				assert.Equal(t, "Failed to process workflow", response.Error)
+				assert.Equal(t, "Failed to retrieve workflow", response.Error)
 			},
 		},
 
 		"workflow_with_nil_relationships": {
 			workflowID: "550e8400-e29b-41d4-a716-446655440000",
-			setupMock: func(mockDB *mocks.MockWorkFlowDB) {
+			setupMock: func(mockDB *dbmocks.MockWorkFlowDB, mockCache *cachemocks.MockCache) {
+				// Mock cache miss so it goes to database
+				cacheKey := "workflow:550e8400-e29b-41d4-a716-446655440000"
+				mockCache.EXPECT().
+					Get(gomock.Any(), cacheKey, gomock.Any()).
+					Return(cache.ErrCacheMiss{Key: cacheKey})
+
 				workflow := &models.Workflow{
 					ID:          "550e8400-e29b-41d4-a716-446655440000",
 					Name:        "Minimal Workflow",
@@ -244,6 +292,11 @@ func TestHandleGetWorkflow(t *testing.T) {
 				mockDB.EXPECT().
 					GetWorkflowByID(gomock.Any(), "550e8400-e29b-41d4-a716-446655440000").
 					Return(workflow, nil)
+
+				// Mock cache set after retrieving from DB
+				mockCache.EXPECT().
+					Set(gomock.Any(), cacheKey, gomock.Any(), gomock.Any()).
+					Return(nil)
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(t *testing.T, body []byte) {
@@ -264,7 +317,13 @@ func TestHandleGetWorkflow(t *testing.T) {
 
 		"workflow_with_complex_conditional_edges": {
 			workflowID: "550e8400-e29b-41d4-a716-446655440001",
-			setupMock: func(mockDB *mocks.MockWorkFlowDB) {
+			setupMock: func(mockDB *dbmocks.MockWorkFlowDB, mockCache *cachemocks.MockCache) {
+				// Mock cache miss so it goes to database
+				cacheKey := "workflow:550e8400-e29b-41d4-a716-446655440001"
+				mockCache.EXPECT().
+					Get(gomock.Any(), cacheKey, gomock.Any()).
+					Return(cache.ErrCacheMiss{Key: cacheKey})
+
 				// Create workflow with conditional branching
 				workflow := &models.Workflow{
 					ID:          "550e8400-e29b-41d4-a716-446655440001",
@@ -369,6 +428,11 @@ func TestHandleGetWorkflow(t *testing.T) {
 				mockDB.EXPECT().
 					GetWorkflowByID(gomock.Any(), "550e8400-e29b-41d4-a716-446655440001").
 					Return(workflow, nil)
+
+				// Mock cache set after retrieving from DB
+				mockCache.EXPECT().
+					Set(gomock.Any(), cacheKey, gomock.Any(), gomock.Any()).
+					Return(nil)
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(t *testing.T, body []byte) {
@@ -405,15 +469,17 @@ func TestHandleGetWorkflow(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			// Create mock database
-			mockDB := mocks.NewMockWorkFlowDB(ctrl)
+			// Create mocks
+			mockDB := dbmocks.NewMockWorkFlowDB(ctrl)
+			mockCache := cachemocks.NewMockCache(ctrl)
 
 			// Setup expectations
-			tc.setupMock(mockDB)
+			tc.setupMock(mockDB, mockCache)
 
 			// Create service with mock
 			service := &Service{
-				db: mockDB,
+				db:    mockDB,
+				cache: mockCache,
 			}
 
 			// Create test request
@@ -451,7 +517,7 @@ func TestHandleExecuteWorkflow(t *testing.T) {
 		requestBody interface{}
 
 		// Mock setup
-		setupMock func(mockDB *mocks.MockWorkFlowDB)
+		setupMock func(mockDB *dbmocks.MockWorkFlowDB, mockCache *cachemocks.MockCache)
 
 		// Expected response
 		expectedStatus int
@@ -470,7 +536,13 @@ func TestHandleExecuteWorkflow(t *testing.T) {
 					Threshold: 20.0,
 				},
 			},
-			setupMock: func(mockDB *mocks.MockWorkFlowDB) {
+			setupMock: func(mockDB *dbmocks.MockWorkFlowDB, mockCache *cachemocks.MockCache) {
+				// Mock cache miss so it goes to database
+				cacheKey := "workflow:550e8400-e29b-41d4-a716-446655440000"
+				mockCache.EXPECT().
+					Get(gomock.Any(), cacheKey, gomock.Any()).
+					Return(cache.ErrCacheMiss{Key: cacheKey})
+
 				// For execution test, we need a workflow with at least start and end nodes
 				workflow := &models.Workflow{
 					ID:   "550e8400-e29b-41d4-a716-446655440000",
@@ -529,6 +601,11 @@ func TestHandleExecuteWorkflow(t *testing.T) {
 				mockDB.EXPECT().
 					GetWorkflowByID(gomock.Any(), "550e8400-e29b-41d4-a716-446655440000").
 					Return(workflow, nil)
+
+				// Mock cache set after retrieving from DB
+				mockCache.EXPECT().
+					Set(gomock.Any(), cacheKey, gomock.Any(), gomock.Any()).
+					Return(nil)
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(t *testing.T, body []byte) {
@@ -543,7 +620,7 @@ func TestHandleExecuteWorkflow(t *testing.T) {
 		"invalid_request_body": {
 			workflowID:  "550e8400-e29b-41d4-a716-446655440000",
 			requestBody: "invalid json",
-			setupMock: func(mockDB *mocks.MockWorkFlowDB) {
+			setupMock: func(mockDB *dbmocks.MockWorkFlowDB, mockCache *cachemocks.MockCache) {
 				// No DB call expected for invalid request body
 			},
 			expectedStatus: http.StatusBadRequest,
@@ -562,7 +639,13 @@ func TestHandleExecuteWorkflow(t *testing.T) {
 					"name": "John Doe",
 				},
 			},
-			setupMock: func(mockDB *mocks.MockWorkFlowDB) {
+			setupMock: func(mockDB *dbmocks.MockWorkFlowDB, mockCache *cachemocks.MockCache) {
+				// Mock cache miss so it goes to database
+				cacheKey := "workflow:non-existent-id"
+				mockCache.EXPECT().
+					Get(gomock.Any(), cacheKey, gomock.Any()).
+					Return(cache.ErrCacheMiss{Key: cacheKey})
+
 				mockDB.EXPECT().
 					GetWorkflowByID(gomock.Any(), "non-existent-id").
 					Return(nil, fmt.Errorf("workflow not found: non-existent-id"))
@@ -583,7 +666,13 @@ func TestHandleExecuteWorkflow(t *testing.T) {
 					"name": "John Doe",
 				},
 			},
-			setupMock: func(mockDB *mocks.MockWorkFlowDB) {
+			setupMock: func(mockDB *dbmocks.MockWorkFlowDB, mockCache *cachemocks.MockCache) {
+				// Mock cache miss so it goes to database
+				cacheKey := "workflow:550e8400-e29b-41d4-a716-446655440000"
+				mockCache.EXPECT().
+					Get(gomock.Any(), cacheKey, gomock.Any()).
+					Return(cache.ErrCacheMiss{Key: cacheKey})
+
 				mockDB.EXPECT().
 					GetWorkflowByID(gomock.Any(), "550e8400-e29b-41d4-a716-446655440000").
 					Return(nil, errors.New("execution failed"))
@@ -605,15 +694,17 @@ func TestHandleExecuteWorkflow(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			// Create mock database
-			mockDB := mocks.NewMockWorkFlowDB(ctrl)
+			// Create mocks
+			mockDB := dbmocks.NewMockWorkFlowDB(ctrl)
+			mockCache := cachemocks.NewMockCache(ctrl)
 
 			// Setup expectations
-			tc.setupMock(mockDB)
+			tc.setupMock(mockDB, mockCache)
 
 			// Create service with mock
 			service := &Service{
-				db: mockDB,
+				db:    mockDB,
+				cache: mockCache,
 			}
 
 			// Prepare request body
