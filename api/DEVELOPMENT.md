@@ -126,6 +126,7 @@ make api-lint-fix    # Auto-fix lint issues
 3. Use SQLBoiler generated methods for DB operations
 4. Write unit tests with mocks (`make generate-mocks`)
 5. Run `make api-lint` before committing
+6. Try to make code extendable and generic.
 
 ## TODO
 
@@ -136,3 +137,5 @@ make api-lint-fix    # Auto-fix lint issues
 5. Add concurrency if have situation that multiple workflow steps run in parallel
 6. For real Email or other types of notifications, can decouple them after a queue
 7. Add tracing and metrics
+8. Auto re-generate mocks and models with docker-compose running
+9. Seperate services package to make API routing and handlers light.
