@@ -11,7 +11,7 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// HandleGetWorkflow retrieves a workflow by ID from the database
+// HandleGetWorkflow retrieves a workflow by ID and returns it to the client
 func (s *Service) HandleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	slog.Debug("Returning workflow definition for id", "id", id)
@@ -19,8 +19,8 @@ func (s *Service) HandleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 	// Set Content-Type header for all responses
 	w.Header().Set("Content-Type", "application/json")
 
-	// Get workflow from database using repository
-	workflow, err := s.db.GetWorkflowByID(r.Context(), id)
+	// Use the GetWorkflow function to retrieve the workflow
+	apiWorkflow, err := s.GetWorkflow(r.Context(), id)
 	if err != nil {
 		slog.Error("Failed to get workflow", "error", err, "id", id)
 
@@ -30,16 +30,8 @@ func (s *Service) HandleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Other database errors
+		// Other errors
 		writeErrorResponse(w, http.StatusInternalServerError, "Failed to retrieve workflow")
-		return
-	}
-
-	// Convert DB model to API model using mapper
-	apiWorkflow, err := MapDBWorkflowToAPI(workflow)
-	if err != nil {
-		slog.Error("Failed to map workflow", "error", err)
-		writeErrorResponse(w, http.StatusInternalServerError, "Failed to process workflow")
 		return
 	}
 
@@ -88,3 +80,4 @@ func (s *Service) HandleExecuteWorkflow(w http.ResponseWriter, r *http.Request) 
 		slog.Error("Failed to encode response", "error", err)
 	}
 }
+

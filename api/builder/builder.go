@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"workflow-code-test/api/pkg/cache"
 	"workflow-code-test/api/pkg/db"
 	"workflow-code-test/api/services/workflow"
 )
@@ -21,6 +22,7 @@ import (
 // Config holds all configuration for the application
 type Config struct {
 	DatabaseURL     string
+	RedisURL        string
 	ServerPort      string
 	FrontendURL     string
 	LogLevel        slog.Level
@@ -32,6 +34,7 @@ type App struct {
 	Config          *Config
 	Logger          *slog.Logger
 	DBPool          *pgxpool.Pool
+	Cache           cache.Cache
 	Router          *mux.Router
 	Server          *http.Server
 	WorkflowService *workflow.Service
@@ -43,6 +46,9 @@ func NewConfig() (*Config, error) {
 	if !ok {
 		return nil, fmt.Errorf("DATABASE_URL is not set")
 	}
+
+	// Redis URL is optional - cache will be disabled if not set
+	redisURL := os.Getenv("REDIS_URL")
 
 	// Set defaults that can be overridden by env vars
 	serverPort := os.Getenv("SERVER_PORT")
@@ -71,6 +77,7 @@ func NewConfig() (*Config, error) {
 
 	return &Config{
 		DatabaseURL:     dbURL,
+		RedisURL:        redisURL,
 		ServerPort:      serverPort,
 		FrontendURL:     frontendURL,
 		LogLevel:        logLevel,
@@ -104,12 +111,12 @@ func SetupRouter() *mux.Router {
 }
 
 // SetupServices initializes all application services
-func SetupServices(pool *pgxpool.Pool, router *mux.Router) (*workflow.Service, error) {
+func SetupServices(pool *pgxpool.Pool, cacheClient cache.Cache, router *mux.Router) (*workflow.Service, error) {
 	// Setup API subrouter
 	apiRouter := router.PathPrefix("/api/v1").Subrouter()
 
 	// Initialize workflow service
-	workflowService, err := workflow.NewService(pool)
+	workflowService, err := workflow.NewService(pool, cacheClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create workflow service: %w", err)
 	}
@@ -156,14 +163,30 @@ func Build(ctx context.Context) (*App, error) {
 		return nil, err
 	}
 
+	// Setup cache (optional)
+	var cacheClient cache.Cache
+	if config.RedisURL == "" {
+		logger.Error("Redis URL not configured")
+		return nil, fmt.Errorf("Redis URL not configured")
+	}
+	cacheClient, err = cache.NewRedisCache(config.RedisURL)
+	if err != nil {
+		logger.Error("Failed to connect to Redis", "error", err)
+		return nil, err
+	}
+	logger.Info("Redis cache connected successfully")
+
 	// Setup router
 	router := SetupRouter()
 
 	// Setup services
-	workflowService, err := SetupServices(pool, router)
+	workflowService, err := SetupServices(pool, cacheClient, router)
 	if err != nil {
 		logger.Error("Failed to setup services", "error", err)
 		pool.Close()
+		if cacheClient != nil {
+			cacheClient.Close()
+		}
 		return nil, err
 	}
 
@@ -174,6 +197,7 @@ func Build(ctx context.Context) (*App, error) {
 		Config:          config,
 		Logger:          logger,
 		DBPool:          pool,
+		Cache:           cacheClient,
 		Router:          router,
 		Server:          server,
 		WorkflowService: workflowService,
@@ -220,6 +244,13 @@ func (app *App) Shutdown(ctx context.Context) error {
 		}
 	}
 
+	// Close cache connection
+	if app.Cache != nil {
+		if err := app.Cache.Close(); err != nil {
+			app.Logger.Error("Failed to close cache connection", "error", err)
+		}
+	}
+
 	// Close database connection
 	app.DBPool.Close()
 
@@ -229,6 +260,9 @@ func (app *App) Shutdown(ctx context.Context) error {
 
 // Close releases all resources
 func (app *App) Close() {
+	if app.Cache != nil {
+		app.Cache.Close()
+	}
 	if app.DBPool != nil {
 		app.DBPool.Close()
 	}

@@ -49,7 +49,8 @@ api-generate:
 .PHONY: generate-mocks
 generate-mocks:
 	@echo "Generating mocks for testing..."
-	@cd api && mockgen -source=pkg/db/workflow_repository.go -destination=mocks/mock_workflow_db.go -package=mocks WorkFlowDB
+	@cd api && mockgen -source=pkg/db/workflow_repository.go -destination=pkg/db/mocks/mock_workflow_db.go -package=mocks WorkFlowDB
+	@cd api && mockgen -source=pkg/cache/cache.go -destination=pkg/cache/mocks/mock_cache.go -package=mocks Cache
 	@echo "Mocks generated successfully!"
 
 # Build the API

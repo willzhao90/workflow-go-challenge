@@ -131,7 +131,8 @@ make api-lint-fix    # Auto-fix lint issues
 
 1. Unified Error type library with status code
 2. Better logs (suggest https://github.com/uber-go/zap)
-3. Retry logic
-4. Condition node in workflows could have input variable to make it more generic
+3. Retry and rate limiter on executing integration node
+4. Both integration node and condition node in workflows could have more input variable to make it more generic
 5. Add concurrency if have situation that multiple workflow steps run in parallel
 6. For real Email or other types of notifications, can decouple them after a queue
+7. Add tracing and metrics

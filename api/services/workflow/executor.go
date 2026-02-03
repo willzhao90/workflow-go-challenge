@@ -24,16 +24,10 @@ func (s *Service) ExecuteWorkflow(ctx context.Context, workflowID string, input 
 		Steps:      []api.ExecutionStep{},
 	}
 
-	// Get workflow definition from database
-	workflow, err := s.db.GetWorkflowByID(ctx, workflowID)
+	// Get workflow using the GetWorkflow function (with caching)
+	apiWorkflow, err := s.GetWorkflow(ctx, workflowID)
 	if err != nil {
 		return nil, fmt.Errorf("workflow not found: %w", err)
-	}
-
-	// Map workflow to API model
-	apiWorkflow, err := MapDBWorkflowToAPI(workflow)
-	if err != nil {
-		return nil, fmt.Errorf("failed to map workflow: %w", err)
 	}
 
 	// Execute workflow steps
